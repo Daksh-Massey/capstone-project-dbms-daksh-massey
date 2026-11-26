@@ -1,0 +1,113 @@
+DROP DATABASE IF EXISTS personal_finance_capstone;
+CREATE DATABASE personal_finance_capstone
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+USE personal_finance_capstone;
+
+-- 1. Users
+CREATE TABLE users (
+    user_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    full_name VARCHAR(100) NOT NULL,
+    email VARCHAR(150) NOT NULL UNIQUE,
+    currency_code CHAR(3) NOT NULL DEFAULT 'INR',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+-- 2. Financial Accounts (Bank, Credit Card, Cash, Wallet)
+CREATE TABLE accounts (
+    account_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id INT UNSIGNED NOT NULL,
+    account_name VARCHAR(80) NOT NULL,
+    account_type ENUM('CHECKING', 'SAVINGS', 'CREDIT_CARD', 'CASH', 'INVESTMENT') NOT NULL,
+    opening_balance DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_accounts_user
+        FOREIGN KEY (user_id) REFERENCES users(user_id)
+        ON DELETE CASCADE,
+    UNIQUE KEY uq_user_account_name (user_id, account_name)
+) ENGINE=InnoDB;
+
+-- 3. Categories (Income vs Expense)
+CREATE TABLE categories (
+    category_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id INT UNSIGNED NOT NULL,
+    category_name VARCHAR(60) NOT NULL,
+    category_type ENUM('INCOME', 'EXPENSE') NOT NULL,
+    CONSTRAINT fk_categories_user
+        FOREIGN KEY (user_id) REFERENCES users(user_id)
+        ON DELETE CASCADE,
+    UNIQUE KEY uq_user_category (user_id, category_name, category_type)
+) ENGINE=InnoDB;
+
+-- 4. Transactions
+CREATE TABLE transactions (
+    transaction_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id INT UNSIGNED NOT NULL,
+    account_id INT UNSIGNED NOT NULL,
+    category_id INT UNSIGNED NOT NULL,
+    txn_type ENUM('INCOME', 'EXPENSE') NOT NULL,
+    amount DECIMAL(12, 2) NOT NULL,
+    txn_date DATE NOT NULL,
+    merchant VARCHAR(100) NULL,
+    notes VARCHAR(255) NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_txn_amount_positive CHECK (amount > 0),
+    CONSTRAINT fk_txn_user
+        FOREIGN KEY (user_id) REFERENCES users(user_id)
+        ON DELETE CASCADE,
+    CONSTRAINT fk_txn_account
+        FOREIGN KEY (account_id) REFERENCES accounts(account_id)
+        ON DELETE RESTRICT,
+    CONSTRAINT fk_txn_category
+        FOREIGN KEY (category_id) REFERENCES categories(category_id)
+        ON DELETE RESTRICT,
+    INDEX idx_txn_user_date (user_id, txn_date),
+    INDEX idx_txn_category_date (category_id, txn_date)
+) ENGINE=InnoDB;
+
+-- 5. Monthly Category Budgets
+CREATE TABLE budgets (
+    budget_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id INT UNSIGNED NOT NULL,
+    category_id INT UNSIGNED NOT NULL,
+    budget_month DATE NOT NULL COMMENT 'Store first day of month, e.g., 2026-10-01',
+    limit_amount DECIMAL(12, 2) NOT NULL,
+    CONSTRAINT chk_budget_positive CHECK (limit_amount > 0),
+    CONSTRAINT fk_budgets_user
+        FOREIGN KEY (user_id) REFERENCES users(user_id)
+        ON DELETE CASCADE,
+    CONSTRAINT fk_budgets_category
+        FOREIGN KEY (category_id) REFERENCES categories(category_id)
+        ON DELETE CASCADE,
+    UNIQUE KEY uq_user_cat_month (user_id, category_id, budget_month)
+) ENGINE=InnoDB;
+
+-- 6. Recurring Bills & Subscriptions
+CREATE TABLE recurring_rules (
+    rule_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id INT UNSIGNED NOT NULL,
+    account_id INT UNSIGNED NOT NULL,
+    category_id INT UNSIGNED NOT NULL,
+    title VARCHAR(100) NOT NULL,
+    txn_type ENUM('INCOME', 'EXPENSE') NOT NULL DEFAULT 'EXPENSE',
+    amount DECIMAL(12, 2) NOT NULL,
+    frequency ENUM('WEEKLY', 'MONTHLY', 'YEARLY') NOT NULL DEFAULT 'MONTHLY',
+    next_due_date DATE NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    CONSTRAINT chk_rule_amount_positive CHECK (amount > 0),
+    CONSTRAINT fk_rules_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    CONSTRAINT fk_rules_account FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE RESTRICT,
+    CONSTRAINT fk_rules_category FOREIGN KEY (category_id) REFERENCES categories(category_id) ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+-- 7. Audit Log (Populated via Trigger)
+CREATE TABLE transaction_audit_log (
+    audit_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    transaction_id BIGINT UNSIGNED NOT NULL,
+    action_type ENUM('INSERT', 'UPDATE', 'DELETE') NOT NULL,
+    old_amount DECIMAL(12, 2) NULL,
+    new_amount DECIMAL(12, 2) NULL,
+    changed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
